@@ -1,8 +1,11 @@
+import base64
 import json
 import math
 import threading
 import time
 import tkinter as tk
+
+import numpy as np
 from cv2 import cv2
 import paho.mqtt.client as mqtt
 from PIL import Image, ImageTk
@@ -14,7 +17,7 @@ from utils.faceDetector import FaceDetector
 from utils.speechDetector import SpeechDetector
 from utils.MapFrameClass import MapFrameClass
 from PIL import ImageTk
-from tkinter import messagebox
+from tkinter import messagebox, YES, BOTH, NW
 from apscheduler.schedulers.background import BackgroundScheduler
 from shapely.geometry import Point
 from shapely.geometry.polygon import Polygon
@@ -25,6 +28,8 @@ class DetectorClass:
         self.father_frame = None
         self.mode = None
         self.client = None
+        self.client2 = None
+        self.client3 = None
         self.cap = None
         self.detector = None
         self.master = None
@@ -58,12 +63,16 @@ class DetectorClass:
         self.level3_button = None
         self.direction = None
         self.selected_level = None
+        self.show_video_window = None
+        self.sched = None
+        # self.canvas4 = None
+        self.vidLabel = None
 
     def build_frame(self, father_frame, mode):
         # mode can be: fingers, face or pose
         self.father_frame = father_frame
         self.mode = mode
-
+        # treure
         if self.mode == "fingers":
             self.detector = FingerDetector()
         elif self.mode == "pose":
@@ -74,8 +83,8 @@ class DetectorClass:
             self.detector = FaceDetector()
 
         if self.mode != "voice":
-            self.cap = cv2.VideoCapture(0)
-
+            self.cap = cv2.VideoCapture(0) # obrir camera
+        #
         self.master = tk.Frame(self.father_frame)
         self.master.rowconfigure(0, weight=1)
         self.master.rowconfigure(1, weight=1)
@@ -210,6 +219,15 @@ class DetectorClass:
         self.connected = False
         self.state = "disconnected"
 
+        # ens conncectem al imageService
+        broker_address = "localhost"
+        broker_port = 8080
+        self.client2 = mqtt.Client(transport="websockets")
+        self.client2.on_message = self.on_message2  # Callback function executed when a message is received
+        self.client2.connect(broker_address, broker_port)
+        self.client2.publish('droneCircus/imageService/Connect')
+        self.client2.loop_start()
+
         return self.master
 
     def show_map(self, position):
@@ -220,6 +238,45 @@ class DetectorClass:
         frame = self.map.build_frame(new_window, position, self.selected_level)
         frame.pack(fill="both", expand="yes", padx=10, pady=10)
         # new_window.mainloop()
+
+    def on_message2(self, cli, userdata, message):
+        splited = message.topic.split("/")
+        origin = splited[0]
+        destination = splited[1]
+        command = splited[2]
+        print(message.topic)
+        if command == "direction":
+            if self.mode != "voice":
+                self.direction = str(message.payload.decode("utf-8"))
+                if(self.direction == "Retorna"):
+                    self.return_home()
+
+        if command == "videoFrame":
+            # Decoding the message
+            img = base64.b64decode(message.payload)
+            # converting into numpy array from buffer
+            npimg = np.frombuffer(img, dtype=np.uint8)
+            # Decode to Original Frame
+            frame2 = cv2.imdecode(npimg, 1)
+            res = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
+            # cv2.putText(
+            #     frame2,
+            #     self.direction,
+            #     (50, 450),
+            #     cv2.FONT_HERSHEY_SIMPLEX,
+            #     3,
+            #     (0, 0, 255),
+            #     10,
+            # )
+            # photo = ImageTk.PhotoImage(image=Image.fromarray(res))
+            # self.canvas4.create_image(0, 0, image=photo, anchor=tk.NW)
+            # cv2.imshow("video", frame2)
+            # cv2.waitKey(1)
+            res = Image.fromarray(res)
+            res = ImageTk.PhotoImage(res)
+            self.vidLabel.configure(image=res)
+            self.vidLabel.image = res
+
 
     def on_message(self, cli, userdata, message):
         splited = message.topic.split("/")
@@ -309,7 +366,7 @@ class DetectorClass:
                 #external_broker_address = "localhost"
 
             # the external broker must run always in port 8000
-            external_broker_port = 8083
+            external_broker_port = 8000
 
             self.client = mqtt.Client("Detector", transport="websockets")
             self.client.on_message = self.on_message
@@ -323,6 +380,7 @@ class DetectorClass:
             self.client.publish("droneCircus/monitor/start")
             self.connect_button["text"] = "connecting ..."
             self.connect_button["bg"] = "orange"
+
         else:
             messagebox.showwarning(
                 "Error",
@@ -526,6 +584,7 @@ class DetectorClass:
             self.client.publish("droneCircus/autopilotService/takeOff")
             self.take_off_button["text"] = "taking off ..."
             self.take_off_button["bg"] = "orange"
+
         elif self.state == "flying":
             messagebox.showwarning("Error", "Ya estas volando", parent=self.master)
         elif self.state == "connected" or self.state == "disconnected":
@@ -537,10 +596,11 @@ class DetectorClass:
 
         if self.state == 'disconnected' or self.state== 'practising':
 
+            self.client2.publish('droneCircus/imageService/stopVideoStream')
+
             # this will stop the video stream thread
             self.state = "closed"
-            self.cap.release()
-            print("cap release done")
+
             """
             #self.client.loop_stop()
             #self.client.disconnect()
@@ -560,6 +620,8 @@ class DetectorClass:
             self.state = 'disconnected'
             """
 
+            self.cap.release()
+            print("cap release done")
             self.father_frame.destroy()
         else:
             messagebox.showwarning(
@@ -573,16 +635,36 @@ class DetectorClass:
             self.practice_button["bg"] = "#367E18"
             self.practice_button["text"] = "Estoy preparado. Quiero volar"
             self.state = "practising"
+
+            parameters = {
+                'mode': self.mode,
+                'level': self.level,
+                'selected_level': self.selected_level
+            }
+            self.client2.publish('droneCircus/imageService/parameters', json.dumps(parameters))
+
+            self.show_video_window = tk.Toplevel(self.master)
+            self.show_video_window.title("Show video")
+            self.show_video_window.geometry("800x600")
+            self.vidLabel = tk.Label(self.show_video_window, anchor=NW)
+            self.vidLabel.pack(expand=YES, fill=BOTH)
+            # show_video_frame = tk.Frame(self.show_video_window)
+            # show_video_frame.pack()
+            #
+            # self.canvas4 = tk.Canvas(show_video_frame, width=800, height=600)
+            # self.canvas4.grid(row=1, column=0, columnspan=3, sticky="nesw")
+
             # startvideo stream to practice
+
+
             x = threading.Thread(target=self.practising)
             x.start()
 
         elif self.state == "practising":
             # stop the video stream thread for practice
             self.state = "disconnected"
-
+            self.client2.publish('droneCircus/imageService/stopVideoStream')
             self.practice_button.grid_forget()
-
             # show buttons for connect, arm and takeOff
             self.button_frame.grid(
                 row=1,
@@ -592,6 +674,8 @@ class DetectorClass:
                 pady=5,
                 sticky=tk.N + tk.S + tk.E + tk.W,
             )
+            self.client2.disconnect()  # disconnect gracefully
+            self.client2.loop_stop()  # stops network loop
 
     def easy(self):
         # show button to select scenario
@@ -707,16 +791,15 @@ class DetectorClass:
             lat = math.radians(self.practicePoint[0])
             lon = math.radians(self.practicePoint[1])
 
-            lat2 = math.asin(
+            lat2 = math.degrees(math.asin(
                 math.sin(lat) * math.cos(d / R)
                 + math.cos(lat) * math.sin(d / R) * math.cos(bearing)
-            )
+            ))
 
-            lon2 = lon + math.atan2(
+            lon2 = math.degrees(lon + math.atan2(
                 math.sin(bearing) * math.sin(d / R) * math.cos(lat),
                 math.cos(d / R) - math.sin(lat) * math.sin(lat2),
-            )
-
+            ))
             if self.selected_level == 'Basico' \
                     and self.dronLabLimits.contains(Point(lat2,lon2)):
                 self.practicePoint = [lat2,lon2]
@@ -740,6 +823,7 @@ class DetectorClass:
                     and not self.obstacle_2_3.contains(Point(lat2, lon2)):
                 self.practicePoint = [lat2, lon2]
                 self.map.move_drone([lat2, lon2], 'red')
+
 
     def practising(self):
 
@@ -790,123 +874,195 @@ class DetectorClass:
 
         self.practicePoint = [41.2765003, 1.9889760]
         self.show_map(self.practicePoint)
-        sched = BackgroundScheduler()
-        sched.add_job(self.movePoint, "interval", seconds=0.5)
-        sched.start()
 
-        # when the user changes the pattern (new face, new pose or new fingers) the system
-        # waits some time (ignore 8 video frames) for the user to stabilize the new pattern
-        # we need the following variables to control this
-        prevCode = -1
-        cont = 0
-        if self.mode == "voice":
-            self.map.putText("Di algo ...")
+        self.sched = BackgroundScheduler()
+        self.sched.add_job(self.movePoint, "interval", seconds=1)
+        self.sched.start()
+        #
+        # # when the user changes the pattern (new face, new pose or new fingers) the system
+        # # waits some time (ignore 8 video frames) for the user to stabilize the new pattern
+        # # we need the following variables to control this
+        # prevCode = -1
+        # cont = 0
+        # if self.mode == "voice":
+        #     self.map.putText("Di algo ...")
+        #
+        # while self.state == "practising":
+        #
+        #     # use the selected detector to get the code of the pattern and the image with landmarks
+        #
+        #     if self.mode != "voice":
+        #         success, image = self.cap.read()
+        #         if not success:
+        #             print("Ignoring empty camera frame.")
+        #             # If loading a video, use 'break' instead of 'continue'.
+        #             continue
+        #         img = cv2.resize(image, (800, 600))
+        #         img = cv2.flip(img, 1)
+        #         code, img = self.detector.detect(img, self.level)
+        #         #print ('estoy enviando imagenes ', code)
+        #         # if user changed the pattern we will ignore the next 8 video frames
+        #         if code != prevCode:
+        #             cont = 4
+        #             prevCode = code
+        #         else:
+        #             cont = cont - 1
+        #             if cont < 0:
+        #                 # the first 8 video frames of the new pattern (to be ignored) are done
+        #                 # we can start showing new results
+        #                 self.direction = self.__set_direction(code)
+        #                 cv2.putText(
+        #                     img,
+        #                     self.direction,
+        #                     (50, 450),
+        #                     cv2.FONT_HERSHEY_SIMPLEX,
+        #                     3,
+        #                     (0, 0, 255),
+        #                     10,
+        #                 )
+        #
+        #         cv2.imshow("video", img)
+        #         cv2.waitKey(1)
+        #     else:
+        #         code, voice = self.detector.detect(self.level)
+        #         if code != -1:
+        #             self.direction = self.__set_direction(code)
+        #         self.map.putText(voice)
+        #
+        # sched.shutdown()
 
+        # Vull enviar el video
         while self.state == "practising":
-
-            # use the selected detector to get the code of the pattern and the image with landmarks
-
-            if self.mode != "voice":
-                success, image = self.cap.read()
-                if not success:
-                    print("Ignoring empty camera frame.")
-                    # If loading a video, use 'break' instead of 'continue'.
-                    continue
-                img = cv2.resize(image, (800, 600))
-                img = cv2.flip(img, 1)
-                code, img = self.detector.detect(img, self.level)
-                #print ('estoy enviando imagenes ', code)
-                # if user changed the pattern we will ignore the next 8 video frames
-                if code != prevCode:
-                    cont = 4
-                    prevCode = code
-                else:
-                    cont = cont - 1
-                    if cont < 0:
-                        # the first 8 video frames of the new pattern (to be ignored) are done
-                        # we can start showing new results
-                        self.direction = self.__set_direction(code)
-                        cv2.putText(
-                            img,
-                            self.direction,
-                            (50, 450),
-                            cv2.FONT_HERSHEY_SIMPLEX,
-                            3,
-                            (0, 0, 255),
-                            10,
-                        )
-
-                cv2.imshow("video", img)
-                cv2.waitKey(1)
-            else:
-                code, voice = self.detector.detect(self.level)
-                if code != -1:
-                    self.direction = self.__set_direction(code)
-                self.map.putText(voice)
-
-        sched.shutdown()
-        cv2.destroyWindow("video")
-        cv2.waitKey(1)
-
-    def flying(self):
-
-        # see comments for practising function
-        prev_code = -1
-        cont = 0
-        # we need to know if the dron is returning to lunch to show an apropriate message
-        self.returning = False
-
-        self.direction = ""
-        while self.state == "flying":
-            success, image = self.cap.read()
+            self.client2.subscribe('imageService/droneCircus/direction')
+            self.client2.subscribe('imageService/droneCircus/videoFrame')
+            success, frame = self.cap.read()
+            _, buffer = cv2.imencode('.jpg', frame)
+            # Converting into encoded bytes
             if not success:
                 print("Ignoring empty camera frame.")
                 # If loading a video, use 'break' instead of 'continue'.
                 continue
-            code, img = self.detector.detect(image, self.level)
-            img = cv2.resize(img, (800, 600))
-            img = cv2.flip(img, 1)
-            if not self.returning:
-                if code != prev_code:
-                    cont = 8
-                    prev_code = code
-                else:
-                    cont = cont - 1
-                    if cont < 0:
-                        self.direction = self.__set_direction(code)
-                        go_topic = "droneCircus/autopilotService/go"
-                        if code == 1:
-                            # north
-                            self.client.publish(go_topic, "North")
-                        elif code == 2:  # south
-                            self.client.publish(go_topic, "South")
-                        elif code == 5:
-                            self.client.publish("droneCircus/autopilotService/drop")
-                            time.sleep(2)
-                            self.client.publish("droneCircus/autopilotService/reset")
-                        elif code == 3:  # east
-                            self.client.publish(go_topic, "East")
-                        elif code == 4:  # west
-                            self.client.publish(go_topic, "West")
-                        elif code == 6:
-                            self.return_home()
-                        elif code == 0:
-                            self.client.publish(go_topic, "Stop")
+            jpg_as_text = base64.b64encode(buffer)
+            self.client2.publish('droneCircus/imageService/videoFramePractice', jpg_as_text)
 
-            cv2.putText(
-                img,
-                self.direction,
-                (50, 450),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                3,
-                (0, 0, 255),
-                10,
-            )
-            cv2.imshow("video", img)
-            cv2.waitKey(1)
+            # cv2.imshow("video", frame)
+            # cv2.waitKey(1)
+            time.sleep(0.25)  # baixar-ho si volem que s'envii més rapid
 
-        cv2.destroyWindow("video")
+        self.show_video_window.destroy()
+
+        self.sched.shutdown()
         cv2.waitKey(1)
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+
+    def flying(self):
+        # see comments for practising function
+        # prev_code = -1
+        # cont = 0
+        # we need to know if the dron is returning to lunch to show an apropriate message
+        self.returning = False
+        self.direction = ""
+
+        # ens conncectem al imageService
+        broker_address = "localhost"
+        broker_port = 8080
+        self.client3 = mqtt.Client(transport="websockets")
+        self.client3.on_message = self.on_message2  # Callback function executed when a message is received
+        self.client3.connect(broker_address, broker_port)
+        self.client3.publish('droneCircus/imageService/Connect')
+        self.client3.loop_start()
+
+        parameters = {
+            'mode': self.mode,
+            'level': self.level,
+            'selected_level': self.selected_level
+        }
+        self.client3.publish('droneCircus/imageService/parameters', json.dumps(parameters))
+
+        self.client3.subscribe('imageService/droneCircus/direction')
+        self.client3.subscribe('imageService/droneCircus/videoFrame')
+
+        self.show_video_window = tk.Toplevel(self.master)
+        self.show_video_window.title("Show video")
+        self.show_video_window.geometry("800x600")
+        self.vidLabel = tk.Label(self.show_video_window, anchor=NW)
+        self.vidLabel.pack(expand=YES, fill=BOTH)
+
+        while self.state == "flying":
+
+            # self.client2.subscribe('imageService/droneCircus/direction')
+            success, frame = self.cap.read()
+            _, buffer = cv2.imencode('.jpg', frame)
+            # Converting into encoded bytes
+            if not success:
+                print("Ignoring empty camera frame.")
+                # If loading a video, use 'break' instead of 'continue'.
+                continue
+            jpg_as_text = base64.b64encode(buffer)
+            self.client3.publish('droneCircus/imageService/videoFrameFlying', jpg_as_text)
+            # cv2.imshow("video", frame)
+            # cv2.waitKey(1)
+            time.sleep(0.25)  # baixar-ho si volem que s'envii més rapid
+
+        self.show_video_window.destroy()
+        cv2.waitKey(1)
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+
+
+        # while self.state == "flying":
+        #     success, image = self.cap.read()
+        #
+        #     if not success:
+        #         print("Ignoring empty camera frame.")
+        #         # If loading a video, use 'break' instead of 'continue'.
+        #         continue
+        #     code, img = self.detector.detect(image, self.level)
+        #     img = cv2.resize(img, (800, 600))
+        #     img = cv2.flip(img, 1)
+        #     if not self.returning:
+        #         if code != prev_code:
+        #             cont = 8
+        #             prev_code = code
+        #         else:
+        #             cont = cont - 1
+        #             if cont < 0:
+        #                 self.direction = self.__set_direction(code)
+        #                 go_topic = "droneCircus/autopilotService/go"
+        #                 if code == 1:
+        #                     # north
+        #                     self.client.publish(go_topic, "North")
+        #                 elif code == 2:  # south
+        #                     self.client.publish(go_topic, "South")
+        #                 elif code == 5:
+        #                     self.client.publish("droneCircus/autopilotService/drop")
+        #                     time.sleep(2)
+        #                     self.client.publish("droneCircus/autopilotService/reset")
+        #                 elif code == 3:  # east
+        #                     self.client.publish(go_topic, "East")
+        #                 elif code == 4:  # west
+        #                     self.client.publish(go_topic, "West")
+        #                 elif code == 6:
+        #                     self.return_home()
+        #                 elif code == 0:
+        #                     self.client.publish(go_topic, "Stop")
+        #
+        #     cv2.putText(
+        #         img,
+        #         self.direction,
+        #         (50, 450),
+        #         cv2.FONT_HERSHEY_SIMPLEX,
+        #         3,
+        #         (0, 0, 255),
+        #         10,
+        #     )
+        #     cv2.imshow("video", img)
+        #     cv2.waitKey(1)
+        #
+        # cv2.destroyWindow("video")
+        # cv2.waitKey(1)
+
 
     def return_home(self):
         if self.state == "flying":
@@ -915,6 +1071,6 @@ class DetectorClass:
             self.return_home_button["text"] = "Volviendo a casa"
             self.return_home_button["bg"] = "orange"
 
-            self.client.publish("droneCircus/autopilotService/returnToLaunch")
         else:
             messagebox.showwarning("Error", "No estas volando", parent=self.master)
+

@@ -36,6 +36,12 @@ class ComputeCoords:
 
 class MapFrameClass:
     def __init__(self):
+        self.message = None
+        self.point = None
+        self.canvas = None
+        self.bg = None
+        self.converter = None
+        self.image = None
         self.father_frame = None
         self.map_frame = None
         self.drone_lat = None
@@ -50,6 +56,10 @@ class MapFrameClass:
         self.to_north = None
         self.to_south = None
         self.dest = None
+        self.N = None
+        self.S = None
+        self.E = None
+        self.W = None
 
     def build_frame(self, father_frame, position, selected_level):
         self.father_frame = father_frame
@@ -278,7 +288,6 @@ class MapFrameClass:
         self.to_west = self.canvas.create_line(
             self.drone_x, self.drone_y, point_west_x, point_west_y, fill="green"
         )
-
         self.W = self.canvas.create_text(
             point_west_x,
             point_west_y,
