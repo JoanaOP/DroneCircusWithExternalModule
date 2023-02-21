@@ -220,8 +220,8 @@ class DetectorClass:
         self.state = "disconnected"
 
         # ens conncectem al imageService
-        broker_address = "localhost"
-        broker_port = 8080
+        broker_address = "broker.hivemq.com"
+        broker_port = 8000
         self.client2 = mqtt.Client(transport="websockets")
         self.client2.on_message = self.on_message2  # Callback function executed when a message is received
         self.client2.connect(broker_address, broker_port)
@@ -451,6 +451,8 @@ class DetectorClass:
             # self.cap.release()
             self.client.loop_stop()
             self.client.disconnect()
+            self.client2.disconnect()
+            self.client2.loop_stop()
             self.connected = False
             self.state = "disconnected"
         else:
@@ -629,7 +631,7 @@ class DetectorClass:
             )
 
     def practice(self):
-
+        print("practice")
         if self.state == "disconnected":
             # start practising
             self.practice_button["bg"] = "#367E18"
@@ -661,6 +663,7 @@ class DetectorClass:
             x.start()
 
         elif self.state == "practising":
+            print("final practice")
             # stop the video stream thread for practice
             self.state = "disconnected"
             self.client2.publish('droneCircus/imageService/stopVideoStream')
@@ -965,8 +968,8 @@ class DetectorClass:
         self.direction = ""
 
         # ens conncectem al imageService
-        broker_address = "localhost"
-        broker_port = 8080
+        broker_address = "broker.hivemq.com"
+        broker_port = 8000
         self.client3 = mqtt.Client(transport="websockets")
         self.client3.on_message = self.on_message2  # Callback function executed when a message is received
         self.client3.connect(broker_address, broker_port)
