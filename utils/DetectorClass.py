@@ -67,8 +67,12 @@ class DetectorClass:
         self.sched = None
         # self.canvas4 = None
         self.vidLabel = None
+        # self.contador2 = None
+        self.returning = None
 
     def build_frame(self, father_frame, mode):
+        # self.contador2 = 0
+
         # mode can be: fingers, face or pose
         self.father_frame = father_frame
         self.mode = mode
@@ -245,13 +249,37 @@ class DetectorClass:
         destination = splited[1]
         command = splited[2]
         print(message.topic)
-        if command == "direction":
+        if command == "code":
             if self.mode != "voice":
-                self.direction = str(message.payload.decode("utf-8"))
-                if(self.direction == "Retorna"):
-                    self.return_home()
+                code = int(message.payload.decode("utf-8"))
+                self.direction = self.__set_direction(code)
+
+                if self.state == "flying":
+                    if not self.returning:
+                        go_topic = "droneCircus/autopilotService/go"
+                        if code == 1:
+                            self.client.publish(go_topic, "North")
+                        elif code == 2:
+                            self.client.publish(go_topic, "South")
+                        elif code == 3:  # east
+                            self.client.publish(go_topic, "East")
+                        elif code == 4:
+                            self.client.publish(go_topic, "West")
+                        elif code == 5:
+                            self.client.publish("droneCircus/autopilotService/drop")
+                            self.client.publish("droneCircus/autopilotService/reset")
+                        elif code == 6:
+                            self.returning = True
+                            self.direction = "Volviendo a casa"
+                            self.return_home()
+                        elif code == 0:
+                            self.client.publish(go_topic, "Stop")
+
+
 
         if command == "videoFrame":
+            # self.contador2 = self.contador2 + 1
+            # print("contador 2: ", self.contador2)
             # Decoding the message
             img = base64.b64decode(message.payload)
             # converting into numpy array from buffer
@@ -935,9 +963,11 @@ class DetectorClass:
         # sched.shutdown()
 
         # Vull enviar el video
+        # contador1 = 0
+        self.client2.subscribe('imageService/droneCircus/code')
+        self.client2.subscribe('imageService/droneCircus/videoFrame')
+
         while self.state == "practising":
-            self.client2.subscribe('imageService/droneCircus/direction')
-            self.client2.subscribe('imageService/droneCircus/videoFrame')
             success, frame = self.cap.read()
             _, buffer = cv2.imencode('.jpg', frame)
             # Converting into encoded bytes
@@ -946,8 +976,9 @@ class DetectorClass:
                 # If loading a video, use 'break' instead of 'continue'.
                 continue
             jpg_as_text = base64.b64encode(buffer)
-            self.client2.publish('droneCircus/imageService/videoFramePractice', jpg_as_text)
-
+            self.client2.publish('droneCircus/imageService/videoFrame', jpg_as_text)
+            # contador1 = contador1 + 1
+            # print("contador1: ",contador1)
             # cv2.imshow("video", frame)
             # cv2.waitKey(1)
             time.sleep(0.25)  # baixar-ho si volem que s'envii més rapid
@@ -983,7 +1014,7 @@ class DetectorClass:
         }
         self.client3.publish('droneCircus/imageService/parameters', json.dumps(parameters))
 
-        self.client3.subscribe('imageService/droneCircus/direction')
+        self.client3.subscribe('imageService/droneCircus/code')
         self.client3.subscribe('imageService/droneCircus/videoFrame')
 
         self.show_video_window = tk.Toplevel(self.master)
@@ -1003,7 +1034,7 @@ class DetectorClass:
                 # If loading a video, use 'break' instead of 'continue'.
                 continue
             jpg_as_text = base64.b64encode(buffer)
-            self.client3.publish('droneCircus/imageService/videoFrameFlying', jpg_as_text)
+            self.client3.publish('droneCircus/imageService/videoFrame', jpg_as_text)
             # cv2.imshow("video", frame)
             # cv2.waitKey(1)
             time.sleep(0.25)  # baixar-ho si volem que s'envii més rapid
@@ -1073,6 +1104,7 @@ class DetectorClass:
             self.direction = "Volviendo a casa"
             self.return_home_button["text"] = "Volviendo a casa"
             self.return_home_button["bg"] = "orange"
+            self.client.publish("droneCircus/autopilotService/returnToLaunch")
 
         else:
             messagebox.showwarning("Error", "No estas volando", parent=self.master)
