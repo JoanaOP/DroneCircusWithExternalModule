@@ -225,6 +225,7 @@ class DetectorClass:
 
         # ens conncectem al imageService
         broker_address = "broker.hivemq.com"
+        # broker_address = "localhost"
         broker_port = 8000
         self.client2 = mqtt.Client(transport="websockets")
         self.client2.on_message = self.on_message2  # Callback function executed when a message is received
