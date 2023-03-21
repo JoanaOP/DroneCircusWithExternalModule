@@ -274,19 +274,20 @@ class DetectorClass:
         return res
 
     def draw_pose(self, landmarks, res):
-        if(len(landmarks)!=0):
+        if(landmarks):
             landmarks_list = landmark_pb2.LandmarkList()
+
             for landmark_dict in landmarks:
                 landmark = landmark_pb2.Landmark(x=float(landmark_dict["x"]), y=float(landmark_dict["y"]),
-                                                 z=float(landmark_dict["z"]))
+                                                 z=float(landmark_dict["z"]), visibility=float(landmark_dict["visibility"]))
                 landmarks_list.landmark.append(landmark)
-
             self.mp_drawing.draw_landmarks(
                 res,
                 landmarks_list,
                 self.mp_pose.POSE_CONNECTIONS,
                 landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style(),
             )
+        return res
 
     def draw_face(self, multi_landmarks, res):
         if (multi_landmarks):
