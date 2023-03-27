@@ -1063,7 +1063,7 @@ class DetectorClass:
             # print("contador1: ",contador1)
             # cv2.imshow("video", frame)
             # cv2.waitKey(1)
-            time.sleep(0.5)  # baixar-ho si volem que s'envii més rapid
+            time.sleep(0.5)  # pujar-ho si hi ha massa delay
 
         self.show_video_window.destroy()
 
