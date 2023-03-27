@@ -9,7 +9,8 @@ import numpy as np
 from cv2 import cv2
 import paho.mqtt.client as mqtt
 from PIL import Image, ImageTk
-
+import mediapipe as mp
+from mediapipe.framework.formats import landmark_pb2
 
 from utils.fingerDetector import FingerDetector
 from utils.poseDetector import PoseDetector
@@ -69,6 +70,13 @@ class DetectorClass:
         self.vidLabel = None
         # self.contador2 = None
         self.returning = None
+        self.frame_list = None
+        self.mp_drawing = mp.solutions.drawing_utils
+        self.mp_drawing_styles = mp.solutions.drawing_styles
+        self.mp_hands = mp.solutions.hands
+        self.mp_face_mesh = mp.solutions.face_mesh
+        self.mp_pose = mp.solutions.pose
+        self.drawing_spec = self.mp_drawing.DrawingSpec(thickness=1, circle_radius=1)
 
     def build_frame(self, father_frame, mode):
         # self.contador2 = 0
@@ -103,6 +111,8 @@ class DetectorClass:
 
         # level can be easy or difficult
         self.level = "easy"
+
+        self.frame_list = []
 
         self.easy_button = tk.Button(
             self.top_frame, text="Fácil", bg="#367E18", fg="white", command=self.easy
@@ -224,7 +234,7 @@ class DetectorClass:
         self.state = "disconnected"
 
         # ens conncectem al imageService
-        broker_address = "broker.hivemq.com"
+        broker_address = "localhost"
         # broker_address = "localhost"
         broker_port = 8000
         self.client2 = mqtt.Client(transport="websockets")
@@ -244,6 +254,72 @@ class DetectorClass:
         frame.pack(fill="both", expand="yes", padx=10, pady=10)
         # new_window.mainloop()
 
+    def draw_fingers(self, multi_landmarks, res):
+        if (multi_landmarks):
+            for hand in multi_landmarks:
+                if (len(hand) != 0):
+                    landmarks_list = landmark_pb2.LandmarkList()
+                    for landmark_dict in hand:
+                        landmark = landmark_pb2.Landmark(x=float(landmark_dict["x"]), y=float(landmark_dict["y"]),
+                                                         z=float(landmark_dict["z"]))
+                        landmarks_list.landmark.append(landmark)
+
+                    self.mp_drawing.draw_landmarks(
+                        res,
+                        landmarks_list,
+                        self.mp_hands.HAND_CONNECTIONS,
+                        self.mp_drawing_styles.get_default_hand_landmarks_style(),
+                        self.mp_drawing_styles.get_default_hand_connections_style(),
+                    )
+        return res
+
+    def draw_pose(self, landmarks, res):
+        if(landmarks):
+            landmarks_list = landmark_pb2.LandmarkList()
+
+            for landmark_dict in landmarks:
+                landmark = landmark_pb2.Landmark(x=float(landmark_dict["x"]), y=float(landmark_dict["y"]),
+                                                 z=float(landmark_dict["z"]), visibility=float(landmark_dict["visibility"]))
+                landmarks_list.landmark.append(landmark)
+            self.mp_drawing.draw_landmarks(
+                res,
+                landmarks_list,
+                self.mp_pose.POSE_CONNECTIONS,
+                landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style(),
+            )
+        return res
+
+    def draw_face(self, multi_landmarks, res):
+        if (multi_landmarks):
+            for face in multi_landmarks:
+                if (len(face) != 0):
+                    landmarks_list = landmark_pb2.LandmarkList()
+                    for landmark_dict in face:
+                        landmark = landmark_pb2.Landmark(x=float(landmark_dict["x"]), y=float(landmark_dict["y"]),
+                                                         z=float(landmark_dict["z"]))
+                        landmarks_list.landmark.append(landmark)
+
+                    self.mp_drawing.draw_landmarks(
+                        image=res,
+                        landmark_list=landmarks_list,
+                        connections=self.mp_face_mesh.FACEMESH_TESSELATION,
+                        landmark_drawing_spec=None,
+                        connection_drawing_spec=self.mp_drawing_styles.get_default_face_mesh_tesselation_style())
+                    self.mp_drawing.draw_landmarks(
+                        image=res,
+                        landmark_list=landmarks_list,
+                        connections=self.mp_face_mesh.FACEMESH_CONTOURS,
+                        landmark_drawing_spec=None,
+                        connection_drawing_spec=self.mp_drawing_styles.get_default_face_mesh_contours_style())
+                    self.mp_drawing.draw_landmarks(
+                        image=res,
+                        landmark_list=landmarks_list,
+                        connections=self.mp_face_mesh.FACEMESH_IRISES,
+                        landmark_drawing_spec=None,
+                        connection_drawing_spec=self.mp_drawing_styles.get_default_face_mesh_iris_connections_style())
+        return res
+
+
     def on_message2(self, cli, userdata, message):
         splited = message.topic.split("/")
         origin = splited[0]
@@ -254,7 +330,6 @@ class DetectorClass:
             if self.mode != "voice":
                 code = int(message.payload.decode("utf-8"))
                 self.direction = self.__set_direction(code)
-
                 if self.state == "flying":
                     if not self.returning:
                         go_topic = "droneCircus/autopilotService/go"
@@ -276,31 +351,30 @@ class DetectorClass:
                         elif code == 0:
                             self.client.publish(go_topic, "Stop")
 
-
-
         if command == "videoFrame":
-            # self.contador2 = self.contador2 + 1
-            # print("contador 2: ", self.contador2)
             # Decoding the message
-            img = base64.b64decode(message.payload)
-            # converting into numpy array from buffer
-            npimg = np.frombuffer(img, dtype=np.uint8)
-            # Decode to Original Frame
-            frame2 = cv2.imdecode(npimg, 1)
-            res = cv2.cvtColor(frame2, cv2.COLOR_BGR2RGB)
-            # cv2.putText(
-            #     frame2,
-            #     self.direction,
-            #     (50, 450),
-            #     cv2.FONT_HERSHEY_SIMPLEX,
-            #     3,
-            #     (0, 0, 255),
-            #     10,
-            # )
-            # photo = ImageTk.PhotoImage(image=Image.fromarray(res))
-            # self.canvas4.create_image(0, 0, image=photo, anchor=tk.NW)
-            # cv2.imshow("video", frame2)
-            # cv2.waitKey(1)
+            payload = json.loads(message.payload.decode("utf-8"))
+            index_img = int(payload["index"])
+            landmarks = payload["landmarks"]
+            frame = self.frame_list[index_img]
+            img = cv2.resize(frame, (800, 600))
+            img = cv2.flip(img, 1)
+            res = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            cv2.putText(
+                res,
+                self.direction,
+                (50, 450),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                3,
+                (0, 0, 255),
+                10,
+            )
+            if(self.mode == "fingers"):
+                res = self.draw_fingers(landmarks, res)
+            elif (self.mode == "pose"):
+                res = self.draw_pose(landmarks, res)
+            else:
+                res = self.draw_face(landmarks, res)
             res = Image.fromarray(res)
             res = ImageTk.PhotoImage(res)
             self.vidLabel.configure(image=res)
@@ -380,7 +454,7 @@ class DetectorClass:
                 # there are several options:
                 # a public broker
 
-                external_broker_address = "broker.hivemq.com"
+                external_broker_address = "localhost"
 
                 # our broker (that requires credentials)
                 # external_broker_address = "classpip.upc.edu"
@@ -967,22 +1041,29 @@ class DetectorClass:
         # contador1 = 0
         self.client2.subscribe('imageService/droneCircus/code')
         self.client2.subscribe('imageService/droneCircus/videoFrame')
-
+        index = 0
         while self.state == "practising":
             success, frame = self.cap.read()
+            self.frame_list.append(frame)
+            index = len(self.frame_list) - 1
             _, buffer = cv2.imencode('.jpg', frame)
             # Converting into encoded bytes
             if not success:
                 print("Ignoring empty camera frame.")
                 # If loading a video, use 'break' instead of 'continue'.
                 continue
-            jpg_as_text = base64.b64encode(buffer)
-            self.client2.publish('droneCircus/imageService/videoFrame', jpg_as_text)
+            jpg = base64.b64encode(buffer)
+            jpg_as_text = jpg.decode("utf-8")
+            message = {
+                "image": jpg_as_text,
+                "index": index
+            }
+            self.client2.publish('droneCircus/imageService/videoFrame', json.dumps(message))
             # contador1 = contador1 + 1
             # print("contador1: ",contador1)
             # cv2.imshow("video", frame)
             # cv2.waitKey(1)
-            time.sleep(0.25)  # baixar-ho si volem que s'envii més rapid
+            time.sleep(0.5)  # pujar-ho si hi ha massa delay
 
         self.show_video_window.destroy()
 
@@ -1000,7 +1081,7 @@ class DetectorClass:
         self.direction = ""
 
         # ens conncectem al imageService
-        broker_address = "broker.hivemq.com"
+        broker_address = "localhost"
         broker_port = 8000
         self.client3 = mqtt.Client(transport="websockets")
         self.client3.on_message = self.on_message2  # Callback function executed when a message is received
