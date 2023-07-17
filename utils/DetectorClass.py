@@ -234,7 +234,7 @@ class DetectorClass:
         self.state = "disconnected"
 
         # ens conncectem al imageService
-        broker_address = "localhost"
+        broker_address = "broker.hivemq.com"
         # broker_address = "localhost"
         broker_port = 8000
         self.client2 = mqtt.Client(transport="websockets")
@@ -352,6 +352,7 @@ class DetectorClass:
                             self.client.publish(go_topic, "Stop")
 
         if command == "videoFrame":
+            print('hola')
             # Decoding the message
             payload = json.loads(message.payload.decode("utf-8"))
             index_img = int(payload["index"])
@@ -744,7 +745,9 @@ class DetectorClass:
             parameters = {
                 'mode': self.mode,
                 'level': self.level,
-                'selected_level': self.selected_level
+                'selected_level': self.selected_level,
+                'width': 800,
+                'height': 600
             }
             self.client2.publish('droneCircus/imageService/parameters', json.dumps(parameters))
 
@@ -1063,7 +1066,7 @@ class DetectorClass:
             # print("contador1: ",contador1)
             # cv2.imshow("video", frame)
             # cv2.waitKey(1)
-            time.sleep(0.5)  # pujar-ho si hi ha massa delay
+            time.sleep(0.25)  # pujar-ho si hi ha massa delay
 
         self.show_video_window.destroy()
 
