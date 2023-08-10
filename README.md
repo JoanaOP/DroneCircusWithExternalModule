@@ -30,8 +30,21 @@ This is a summary of what you can see in the video:
 5. Finally, you can see other options such as guide the drone with your voice, your body poses or your face gestures.
 
 
-
 ## Installation and contribution
 In order to run and contribute to this module you need Pythion 3.7. We recommend PyCharm as IDE for development.
 To contribute to must follow the contribution protocol describen in the main repo of the Drone Engineering Ecosystem.
 [![DroneEngineeringEcosystem Badge](https://img.shields.io/badge/DEE-MainRepo-brightgreen.svg)](https://github.com/dronsEETAC/DroneEngineeringEcosystemDEE)
+
+
+# Changes done here:
+
+First a new MQTT client connected to the external broker on port 8000 is added to send messages to the Image Service.
+
+The parameters of the game mode, the difficulty, the level and the image size will be sent on a JSON to the Image Service, before starting the practice inside the practice() function.
+
+The loop on the practising() function is changed to send the video frames to the Image Service instead of detecting here the frames. The frames are stored on a list.
+
+A new on_message_2() function is created to process the messages from the Image Service. It can receive the code and the video frames. When receiving the video frames it receives the index of the position of the image in the list and the vector of landmarks. It retrives the image and paints the landmarks on it.
+
+New functions to paint the landmarks are also added, called draw_face(), draw_fingers() and draw_pose().
+
