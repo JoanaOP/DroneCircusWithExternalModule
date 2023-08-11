@@ -36,7 +36,7 @@ To contribute to must follow the contribution protocol describen in the main rep
 [![DroneEngineeringEcosystem Badge](https://img.shields.io/badge/DEE-MainRepo-brightgreen.svg)](https://github.com/dronsEETAC/DroneEngineeringEcosystemDEE)
 
 
-# Changes done here:
+# Changes made here:
 
 First a new MQTT client connected to the external broker on port 8000 is added to send messages to the Image Service.
 
